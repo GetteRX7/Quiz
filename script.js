@@ -340,12 +340,41 @@ let lastMode   = 'all';
 let lastSubject = -1;
 let lastCount  = 20;
 
+// Review mode state (M3)
+let reviewMode  = false;
+let reviewItems = [];
+let reviewCur   = 0;
+
 // ============================================================
 // INIT
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
   updateSlider(20);
+  renderHistory();
   showScreen('selectScreen');
+
+  // M4: offer to resume saved progress
+  if (loadProgress()) {
+    const done = userAnswers.filter(x => x !== null).length;
+    if (questions.length > 0 && done > 0 && !submitted) {
+      showConfirm(
+        '🔄 มีข้อสอบค้างอยู่',
+        `ทำไปแล้ว ${done}/${questions.length} ข้อ ต้องการทำต่อหรือไม่?`,
+        () => {
+          const label = isCrossMode
+            ? '🎲 สุ่มข้ามวิชา'
+            : SUBJECTS[selSubject].icon + ' ' + SUBJECTS[selSubject].name;
+          document.getElementById('quizSubjectLabel').textContent = label;
+          showScreen('quizScreen');
+          renderNav();
+          renderQ();
+        },
+        'ทำต่อ', 'เริ่มใหม่', () => clearProgress()
+      );
+    } else {
+      clearProgress();
+    }
+  }
 });
 
 // ============================================================
@@ -461,9 +490,9 @@ function startQuiz() {
     : SUBJECTS[selSubject].icon + ' ' + SUBJECTS[selSubject].name;
   document.getElementById('quizSubjectLabel').textContent = label;
 
+  clearProgress();    // M4: discard any previous saved run
   showScreen('quizScreen');
-  renderNav();
-  renderQ();
+  renderQ();          // L1: renderQ already calls renderNav() internally
 }
 
 // ============================================================
@@ -490,6 +519,7 @@ function renderNav() {
 }
 
 function renderQ() {
+  if (reviewMode) { renderReviewQ(); return; }
   const total = questions.length;
   const done  = userAnswers.filter(x => x !== null).length;
 
@@ -519,13 +549,13 @@ function renderQ() {
     b.className = 'opt-btn';
     b.innerHTML = '<span class="opt-letter">' + L[i] + '.</span><span>' + text + '</span>';
 
-    if (userAnswers[cur] !== null) {
+    if (submitted) {
       b.disabled = true;
-      if (submitted) {
-        if (i === q.a)              b.classList.add('correct');
-        else if (i === userAnswers[cur]) b.classList.add('wrong');
-      } else {
-        if (i === userAnswers[cur]) b.classList.add('selected-pending');
+      if (i === q.a)                   b.classList.add('correct');
+      else if (i === userAnswers[cur]) b.classList.add('wrong');
+    } else {
+      if (userAnswers[cur] !== null && i === userAnswers[cur]) {
+        b.classList.add('selected-pending');
       }
     }
     b.addEventListener('click', () => pick(i));
@@ -545,25 +575,29 @@ function renderQ() {
     fb.textContent = '';
   }
 
-  // Nav / submit buttons
-  document.getElementById('prevBtn').style.display   = cur === 0            ? 'none' : '';
-  document.getElementById('nextBtn').style.display   = cur === total - 1    ? 'none' : '';
+  // Nav / submit buttons — use visibility so layout never shifts (U2)
+  document.getElementById('prevBtn').style.visibility   = cur === 0         ? 'hidden' : 'visible';
+  document.getElementById('nextBtn').style.visibility   = cur === total - 1 ? 'hidden' : 'visible';
   document.getElementById('submitBtn').style.display =
-    (userAnswers.every(x => x !== null) && !submitted) ? '' : 'none';
+    (userAnswers.every(x => x !== null) && !submitted) ? 'block' : 'none';
 
   renderNav();
+
+  // U3: scroll current dot into view
+  const curDot = document.getElementById('qNav').querySelector('.q-dot.cur');
+  if (curDot) curDot.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
 }
 
 // ============================================================
 // PICK ANSWER + AUTO-ADVANCE
 // ============================================================
 function pick(i) {
-  if (submitted || userAnswers[cur] !== null) return;
+  if (submitted) return;
+  const isFirstAnswer = userAnswers[cur] === null;
   userAnswers[cur] = i;
 
   // Update options instantly
   Array.from(document.getElementById('qOptions').children).forEach((b, idx) => {
-    b.disabled = true;
     b.classList.remove('selected-pending');
     if (idx === i) b.classList.add('selected-pending');
   });
@@ -573,23 +607,59 @@ function pick(i) {
   dot.classList.add('answered');
   dot.classList.remove('wrong-dot');
 
-  // Show submit if all done
-  if (userAnswers.every(x => x !== null)) {
-    document.getElementById('submitBtn').style.display = '';
+  // B2: update progress bar immediately (renderQ not called on last question)
+  if (isFirstAnswer) {
+    const done  = userAnswers.filter(x => x !== null).length;
+    const total = questions.length;
+    document.getElementById('progressFill').style.width = (done / total * 100) + '%';
+    document.getElementById('progressText').textContent = done + ' / ' + total + ' ตอบแล้ว';
   }
 
-  // Auto-advance
-  if (cur < questions.length - 1) {
-    setTimeout(() => { cur++; renderQ(); }, 400);
+  // Show submit if all done
+  if (userAnswers.every(x => x !== null)) {
+    document.getElementById('submitBtn').style.display = 'block';
+  }
+
+  saveProgress();  // M4: persist after every answer
+
+  // B1/L3: capture cur at schedule time; only advance if user hasn't navigated away
+  if (isFirstAnswer && cur < questions.length - 1) {
+    const from = cur;
+    setTimeout(() => { if (cur === from) { cur++; renderQ(); } }, 400);
   }
 }
 
 function navigate(d) {
+  if (reviewMode) {
+    reviewCur = Math.max(0, Math.min(reviewItems.length - 1, reviewCur + d));
+    renderReviewQ();
+    return;
+  }
   cur = Math.max(0, Math.min(questions.length - 1, cur + d));
+  saveProgress();  // M4
   renderQ();
 }
 
 function goBack() {
+  // In review mode, go back to results (M3)
+  if (reviewMode) {
+    reviewMode = false;
+    document.getElementById('backBtn').textContent = '← กลับ';
+    showScreen('resultScreen');
+    return;
+  }
+  // E1: confirm before discarding in-progress quiz
+  const answered = userAnswers.filter(x => x !== null).length;
+  if (!submitted && answered > 0) {
+    showConfirm(
+      'ออกจากการทดสอบ',
+      `ตอบไปแล้ว ${answered} ข้อ ความคืบหน้าจะหายทั้งหมด`,
+      () => { clearProgress(); showScreen('selectScreen'); },
+      'ออก', 'อยู่ต่อ', null, true
+    );
+    return;
+  }
+  clearProgress();
   showScreen('selectScreen');
 }
 
@@ -597,14 +667,26 @@ function goBack() {
 // SUBMIT & RESULTS
 // ============================================================
 function submitQuiz() {
-  submitted = true;
-  renderQ();
-  document.getElementById('submitBtn').style.display = 'none';
+  // U4: require confirmation before locking answers
+  showConfirm(
+    'ยืนยันการส่งคำตอบ',
+    'เมื่อส่งแล้วจะไม่สามารถแก้ไขคำตอบได้',
+    doSubmit,
+    'ส่งคำตอบ', 'กลับไปตรวจสอบ', null, true
+  );
+}
 
+function doSubmit() {
+  submitted = true;
+  clearProgress();  // M4: discard saved run
+
+  // L2: skip rebuilding quiz UI — we go straight to results
   const correct = userAnswers.filter((a, i) => a === questions[i].a).length;
   const wrong   = questions.length - correct;
   const pct     = Math.round(correct / questions.length * 100);
   const pass    = pct >= 70;
+
+  saveScore(pct, correct, questions.length);  // M2
 
   const subLabel = isCrossMode
     ? '🎲 สุ่มข้ามวิชา'
@@ -629,9 +711,10 @@ function submitQuiz() {
       </div>
     </div>`;
 
+  // E3: null guard (defensive — submit is blocked until all answered)
   const wrongItems = questions
     .map((q, i) => ({ q, i, ua: userAnswers[i] }))
-    .filter(x => x.ua !== x.q.a);
+    .filter(x => x.ua !== null && x.ua !== x.q.a);
 
   const wl = document.getElementById('wrongList');
   if (wrongItems.length > 0) {
@@ -650,6 +733,9 @@ function submitQuiz() {
       '<div style="text-align:center;padding:24px;color:#1a8c5b;font-size:17px;font-weight:700;">🏆 ตอบถูกทุกข้อ!</div>';
   }
 
+  // M3: show review button only when there are wrong answers
+  document.getElementById('reviewBtn').style.display = wrongItems.length > 0 ? 'block' : 'none';
+
   showScreen('resultScreen');
 }
 
@@ -657,6 +743,9 @@ function submitQuiz() {
 // RETRY & HOME
 // ============================================================
 function retryQuiz() {
+  clearProgress();
+  reviewMode = false;
+  document.getElementById('reviewBtn').style.display = 'none';
   submitted   = false;
   cur         = 0;
 
@@ -688,22 +777,236 @@ function retryQuiz() {
 }
 
 function goHome() {
-  mode = lastMode;
+  clearProgress();
+  reviewMode = false;
+  document.getElementById('reviewBtn').style.display = 'none';
+  document.getElementById('backBtn').textContent = '← กลับ';
+
+  mode       = lastMode;
+  selSubject = -1;   // E2: always reset regardless of mode
   document.querySelectorAll('.subject-card').forEach(c => c.classList.remove('selected'));
 
-  // Restore mode tabs
   document.getElementById('tabAll').classList.toggle('active',    mode === 'all');
   document.getElementById('tabRandom').classList.toggle('active', mode === 'random');
   document.getElementById('tabCross').classList.toggle('active',  mode === 'cross');
   document.getElementById('allSection').classList.toggle('hidden',   mode === 'cross');
   document.getElementById('crossSection').classList.toggle('hidden', mode !== 'cross');
 
-  if (mode !== 'cross') {
-    selSubject = -1;
-    const startBtn = document.getElementById('startBtn');
+  const startBtn = document.getElementById('startBtn');
+  if (mode === 'cross') {
+    startBtn.disabled = false;
+    startBtn.textContent = '✈ เริ่มสุ่มข้ามวิชา';
+  } else {
     startBtn.disabled = true;
     startBtn.textContent = 'กรุณาเลือกวิชาก่อน';
   }
 
+  renderHistory();  // M2: refresh history on home screen
   showScreen('selectScreen');
 }
+
+// ============================================================
+// CONFIRM MODAL  (U4)
+// ============================================================
+function showConfirm(title, body, onOk, okLabel = 'ยืนยัน', cancelLabel = 'ยกเลิก', onCancel = null, danger = false) {
+  document.getElementById('confirmTitle').textContent  = title;
+  document.getElementById('confirmBody').textContent   = body;
+  document.getElementById('confirmOk').textContent     = okLabel;
+  document.getElementById('confirmCancel').textContent = cancelLabel;
+  document.getElementById('confirmOk').classList.toggle('danger', danger);
+  document.getElementById('confirmModal').classList.remove('hidden');
+
+  document.getElementById('confirmOk').onclick = () => {
+    document.getElementById('confirmModal').classList.add('hidden');
+    onOk();
+  };
+  document.getElementById('confirmCancel').onclick = () => {
+    document.getElementById('confirmModal').classList.add('hidden');
+    if (onCancel) onCancel();
+  };
+}
+
+// Close modal when clicking the backdrop
+document.addEventListener('click', e => {
+  const modal = document.getElementById('confirmModal');
+  if (e.target === modal) {
+    document.getElementById('confirmCancel').click();
+  }
+});
+
+// ============================================================
+// SCORE HISTORY  (M2)
+// ============================================================
+const HISTORY_KEY = 'sccHistory';
+
+function saveScore(pct, correct, total) {
+  let history = [];
+  try { history = JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch (e) {}
+
+  history.unshift({
+    date:        new Date().toISOString(),
+    mode:        lastMode,
+    subjectIdx:  lastSubject,
+    name:        lastSubject >= 0 ? SUBJECTS[lastSubject].name : 'สุ่มข้ามวิชา',
+    icon:        lastSubject >= 0 ? SUBJECTS[lastSubject].icon : '🎲',
+    correct, total, pct
+  });
+  if (history.length > 10) history = history.slice(0, 10);
+
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch (e) {}
+}
+
+function renderHistory() {
+  let history = [];
+  try { history = JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch (e) {}
+
+  const section = document.getElementById('historySection');
+  if (history.length === 0) { section.classList.add('hidden'); return; }
+  section.classList.remove('hidden');
+
+  document.getElementById('historyList').innerHTML = history.slice(0, 5).map(h => {
+    const modeLabel = h.mode === 'cross'  ? '🎲 สุ่มข้ามวิชา' :
+                      h.mode === 'random' ? '🎲 ' + h.name     :
+                      h.icon + ' ' + h.name;
+    const d = new Date(h.date);
+    const dateStr = d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })
+                  + ' ' + d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+    return `<div class="history-item">
+      <div>
+        <div class="history-name">${modeLabel}</div>
+        <div class="history-sub">${h.correct}/${h.total} ข้อ · ${dateStr}</div>
+      </div>
+      <div class="history-pct ${h.pct >= 70 ? 'pass' : 'fail'}">${h.pct}%</div>
+    </div>`;
+  }).join('');
+}
+
+function clearHistory() {
+  showConfirm('ลบประวัติ', 'ลบประวัติการทดสอบทั้งหมด?', () => {
+    localStorage.removeItem(HISTORY_KEY);
+    renderHistory();
+  }, 'ลบทั้งหมด', 'ยกเลิก', null, true);
+}
+
+// ============================================================
+// REVIEW MODE  (M3)
+// ============================================================
+function startReview() {
+  reviewMode  = true;
+  reviewItems = questions
+    .map((q, i) => ({ q, ua: userAnswers[i], origIdx: i }))
+    .filter(x => x.ua !== null && x.ua !== x.q.a);
+  reviewCur   = 0;
+
+  document.getElementById('quizSubjectLabel').textContent = '📖 ทบทวนข้อผิด';
+  document.getElementById('backBtn').textContent = '← กลับผลลัพธ์';
+  showScreen('quizScreen');
+  renderReviewQ();
+}
+
+function renderReviewQ() {
+  const total = reviewItems.length;
+  const item  = reviewItems[reviewCur];
+  const q     = item.q;
+  const ua    = item.ua;
+
+  document.getElementById('progressFill').style.width    = ((reviewCur + 1) / total * 100) + '%';
+  document.getElementById('progressText').textContent    = (reviewCur + 1) + ' / ' + total + ' ข้อผิด';
+  document.getElementById('qCounter').textContent        = 'ข้อผิดที่ ' + (reviewCur + 1) + '/' + total;
+  document.getElementById('qNum').textContent            = 'ข้อที่ ' + (item.origIdx + 1);
+
+  const tag = document.getElementById('qSubjectTag');
+  tag.textContent = isCrossMode ? SUBJECTS[q.subjectIdx].icon + ' ' + SUBJECTS[q.subjectIdx].name : '';
+
+  document.getElementById('qText').textContent = q.q;
+
+  const opts = document.getElementById('qOptions');
+  opts.innerHTML = '';
+  q.o.forEach((text, i) => {
+    const b = document.createElement('button');
+    b.className = 'opt-btn';
+    b.innerHTML = '<span class="opt-letter">' + L[i] + '.</span><span>' + text + '</span>';
+    b.disabled = true;
+    if (i === q.a)  b.classList.add('correct');
+    else if (i === ua) b.classList.add('wrong');
+    opts.appendChild(b);
+  });
+
+  const fb = document.getElementById('qFeedback');
+  fb.className  = 'feedback show bad';
+  fb.textContent = '✗ คุณตอบ: ' + L[ua] + '. ' + q.o[ua];
+
+  document.getElementById('prevBtn').style.visibility   = reviewCur === 0         ? 'hidden' : 'visible';
+  document.getElementById('nextBtn').style.visibility   = reviewCur === total - 1 ? 'hidden' : 'visible';
+  document.getElementById('submitBtn').style.display    = 'none';
+
+  renderReviewNav();
+}
+
+function renderReviewNav() {
+  const nav = document.getElementById('qNav');
+  nav.innerHTML = '';
+  reviewItems.forEach((item, i) => {
+    const b = document.createElement('button');
+    b.className = 'q-dot wrong-dot';
+    b.textContent = item.origIdx + 1;
+    if (i === reviewCur) b.classList.add('cur');
+    b.addEventListener('click', () => { reviewCur = i; renderReviewQ(); });
+    nav.appendChild(b);
+  });
+  const curDot = nav.querySelector('.q-dot.cur');
+  if (curDot) curDot.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+}
+
+// ============================================================
+// SESSION PROGRESS  (M4)
+// ============================================================
+const PROGRESS_KEY = 'sccProgress';
+
+function saveProgress() {
+  if (submitted || questions.length === 0) return;
+  try {
+    sessionStorage.setItem(PROGRESS_KEY, JSON.stringify({
+      questions, userAnswers, cur,
+      mode, selSubject, isCrossMode,
+      lastMode, lastSubject, lastCount
+    }));
+  } catch (e) {}
+}
+
+function loadProgress() {
+  try {
+    const raw = sessionStorage.getItem(PROGRESS_KEY);
+    if (!raw) return false;
+    const s = JSON.parse(raw);
+    questions   = s.questions;   userAnswers = s.userAnswers; cur        = s.cur;
+    mode        = s.mode;        selSubject  = s.selSubject;  isCrossMode = s.isCrossMode;
+    lastMode    = s.lastMode;    lastSubject = s.lastSubject;  lastCount   = s.lastCount;
+    submitted   = false;
+    return true;
+  } catch (e) { return false; }
+}
+
+function clearProgress() {
+  sessionStorage.removeItem(PROGRESS_KEY);
+}
+
+// ============================================================
+// KEYBOARD NAVIGATION  (M1)
+// ============================================================
+document.addEventListener('keydown', e => {
+  // Don't fire when modal is open
+  if (!document.getElementById('confirmModal').classList.contains('hidden')) return;
+  // Only active on quiz screen
+  if (!document.getElementById('quizScreen').classList.contains('active')) return;
+
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); navigate(-1); return; }
+  if (e.key === 'ArrowRight') { e.preventDefault(); navigate(1);  return; }
+
+  // 1–4 to pick answer (quiz only, not review)
+  if (!submitted && !reviewMode && ['1','2','3','4'].includes(e.key)) {
+    e.preventDefault();
+    const idx = parseInt(e.key) - 1;
+    if (idx < questions[cur].o.length) pick(idx);
+  }
+});

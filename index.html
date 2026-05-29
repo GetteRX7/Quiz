@@ -86,6 +86,15 @@
       กรุณาเลือกวิชาก่อน
     </button>
 
+    <!-- Score history (M2) -->
+    <div id="historySection" class="history-section hidden">
+      <div class="history-header">
+        <div class="history-title">ประวัติการทดสอบ</div>
+        <button class="history-clear-btn" onclick="clearHistory()">ลบประวัติ</button>
+      </div>
+      <div class="history-list" id="historyList"></div>
+    </div>
+
   </section>
 
   <!-- ══════════════════════════════
@@ -94,7 +103,7 @@
   <section class="screen" id="quizScreen">
 
     <div class="quiz-top">
-      <button class="back-btn" onclick="goBack()">← กลับ</button>
+      <button class="back-btn" id="backBtn" onclick="goBack()">← กลับ</button>
       <div class="quiz-label" id="quizSubjectLabel"></div>
       <div class="q-counter" id="qCounter"></div>
     </div>
@@ -131,12 +140,25 @@
     <div class="score-card" id="scoreCard"></div>
     <div class="result-actions">
       <button class="res-btn res-outline" onclick="retryQuiz()">🔄 ทำอีกครั้ง</button>
+      <button class="res-btn res-review" id="reviewBtn" onclick="startReview()" style="display:none">📖 ทบทวน</button>
       <button class="res-btn res-primary" onclick="goHome()">🏠 หน้าหลัก</button>
     </div>
     <div class="wrong-list" id="wrongList"></div>
   </section>
 
 </main>
+
+<!-- Confirm modal (U4) -->
+<div class="modal-overlay hidden" id="confirmModal">
+  <div class="modal-box">
+    <div class="modal-title" id="confirmTitle"></div>
+    <div class="modal-body"  id="confirmBody"></div>
+    <div class="modal-actions">
+      <button class="modal-btn modal-cancel" id="confirmCancel">ยกเลิก</button>
+      <button class="modal-btn modal-ok"     id="confirmOk">ยืนยัน</button>
+    </div>
+  </div>
+</div>
 
 <script src="script.js"></script>
 </body>
