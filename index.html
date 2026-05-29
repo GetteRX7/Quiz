@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>SCC eTesting — May 2026</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="thai-bar"></div>
+<header class="header">
+  <div class="header-title">✈ SCC eTesting — May 2026</div>
+  <div class="header-sub">Senior Cabin Crew | Thai Airways</div>
+</header>
+
+<main class="container">
+
+  <!-- ══════════════════════════════
+       SELECT SCREEN
+  ══════════════════════════════ -->
+  <section class="screen active" id="selectScreen">
+
+    <div class="intro">
+      <h2 class="intro-title">เลือกโหมดการทำข้อสอบ</h2>
+      <p class="intro-sub">เลือกโหมด แล้วกดเริ่มเพื่อทำแบบทดสอบ</p>
+    </div>
+
+    <div class="mode-tabs">
+      <button class="mode-tab active" id="tabAll"    onclick="setMode('all')">ทำทั้งหมด</button>
+      <button class="mode-tab"        id="tabRandom" onclick="setMode('random')">สุ่ม 20 ข้อ</button>
+      <button class="mode-tab"        id="tabCross"  onclick="setMode('cross')">สุ่มข้ามวิชา</button>
+    </div>
+
+    <!-- "all" section: pick a subject -->
+    <div id="allSection">
+      <p class="section-hint">เลือก 1 วิชา</p>
+      <div class="subject-grid">
+        <div class="subject-card" onclick="selectSubject(0)" id="subCard0">
+          <div class="subject-icon">📋</div>
+          <div class="subject-name">Rules &amp; Regulations</div>
+          <div class="subject-count">60 คำถาม</div>
+        </div>
+        <div class="subject-card" onclick="selectSubject(1)" id="subCard1">
+          <div class="subject-badge">NEW</div>
+          <div class="subject-icon">🛡️</div>
+          <div class="subject-name">Safety &amp; Security</div>
+          <div class="subject-count">84 คำถาม</div>
+        </div>
+        <div class="subject-card" onclick="selectSubject(2)" id="subCard2">
+          <div class="subject-icon">🍽️</div>
+          <div class="subject-name">Service &amp; Operating Procedure</div>
+          <div class="subject-count">68 คำถาม</div>
+        </div>
+        <div class="subject-card" onclick="selectSubject(3)" id="subCard3">
+          <div class="subject-icon">☕</div>
+          <div class="subject-name">Food &amp; Beverage</div>
+          <div class="subject-count">82 คำถาม</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- "cross" section: slider -->
+    <div id="crossSection" class="hidden">
+      <div class="slider-card">
+        <div class="slider-header">
+          <span>จำนวนข้อสอบ</span>
+          <span class="slider-count" id="sliderVal">20</span>
+        </div>
+        <input type="range" id="qSlider" min="5" max="50" value="20"
+               oninput="updateSlider(this.value)">
+        <div class="slider-labels"><span>5 ข้อ</span><span>50 ข้อ</span></div>
+        <p class="slider-note">สุ่มจากทุกวิชารวม 294 ข้อ</p>
+        <div class="cross-chips">
+          <span class="cross-chip">📋 Rules</span>
+          <span class="cross-chip">🛡️ Safety</span>
+          <span class="cross-chip">🍽️ Service</span>
+          <span class="cross-chip">☕ F&amp;B</span>
+        </div>
+      </div>
+    </div>
+
+    <button class="start-btn" id="startBtn" onclick="startQuiz()" disabled>
+      กรุณาเลือกวิชาก่อน
+    </button>
+
+  </section>
+
+  <!-- ══════════════════════════════
+       QUIZ SCREEN
+  ══════════════════════════════ -->
+  <section class="screen" id="quizScreen">
+
+    <div class="quiz-top">
+      <button class="back-btn" onclick="goBack()">← กลับ</button>
+      <div class="quiz-label" id="quizSubjectLabel"></div>
+      <div class="q-counter" id="qCounter"></div>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill" style="width:0%"></div>
+      </div>
+      <div class="progress-text" id="progressText"></div>
+    </div>
+
+    <div class="q-nav" id="qNav"></div>
+
+    <div class="q-card">
+      <div class="q-num" id="qNum"></div>
+      <div class="q-subject-tag" id="qSubjectTag"></div>
+      <div class="q-text" id="qText"></div>
+      <div class="options" id="qOptions"></div>
+      <div class="feedback" id="qFeedback"></div>
+    </div>
+
+    <div class="nav-row">
+      <button class="nav-btn" id="prevBtn" onclick="navigate(-1)">← ก่อนหน้า</button>
+      <button class="nav-btn" id="nextBtn" onclick="navigate(1)">ถัดไป →</button>
+      <button class="submit-btn" id="submitBtn" onclick="submitQuiz()">ส่งคำตอบ ✓</button>
+    </div>
+
+  </section>
+
+  <!-- ══════════════════════════════
+       RESULT SCREEN
+  ══════════════════════════════ -->
+  <section class="screen" id="resultScreen">
+    <div class="score-card" id="scoreCard"></div>
+    <div class="result-actions">
+      <button class="res-btn res-outline" onclick="retryQuiz()">🔄 ทำอีกครั้ง</button>
+      <button class="res-btn res-primary" onclick="goHome()">🏠 หน้าหลัก</button>
+    </div>
+    <div class="wrong-list" id="wrongList"></div>
+  </section>
+
+</main>
+
+<script src="script.js"></script>
+</body>
+</html>
